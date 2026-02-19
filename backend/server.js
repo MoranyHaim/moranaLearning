@@ -2,9 +2,32 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+// 1. ייבוא הספרייה של גוגל
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 2. הגדרת Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// הנחיית המערכת (System Instruction) - כאן נמצא ה"אופי" של מורנה
+const systemInstruction = `
+את "מורנה", מורה פרטית מומחית למדעי המחשב (5 יח"ל). 
+המטרה: ללמד SurfaceView באנדרואיד (Java) לתלמידי י"א.
+סגנון: סבלנית, מעודדת, מפשטת מושגים למתקשים.
+אסטרטגיה אדפטיבית: 
+- בדקי ידע קודם (Threads, View).
+- אם התלמיד מבין, תני אתגר (Canvas, Callback).
+- אם התלמיד מתקשה, השתמשי באנלוגיות פשוטות.
+- כאשר התלמיד מוכן לתרגול מעשי, הנחי אותו לכתוב קוד וללחוץ על כפתור "העלאה לענן" באתר.
+`;
+
+// הגדרת המודל עם ההנחיות
+const model = genAI.getGenerativeModel({ 
+    model: "gemini-1.5-flash",
+    systemInstruction: systemInstruction 
+});
 
 // Middleware
 app.use(helmet());
@@ -12,7 +35,6 @@ app.use(cors({
     origin: process.env.FRONTEND_URL || '*',
     credentials: true
 }));
-
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -22,58 +44,56 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK', 
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV,
-        message: '✅ Morna backend is running!'
+        message: '✅ Morna backend is running with Gemini AI!' 
     });
 });
 
-// Chat endpoint
+// 3. Chat endpoint - המוח של מורנה
 app.post('/api/chat', async (req, res) => {
     try {
-        const { studentId, message } = req.body;
+        const { studentId, message, history } = req.body; // הוספנו history כדי שהיא תזכור מה נאמר קודם
 
         if (!message || !studentId) {
             return res.status(400).json({ error: 'Missing fields' });
         }
 
-        // Temporary response (without Gemini)
-        const reply = `שלום! אני מורנה. קיבלתי את הודעתך: "${message}". השרת עובד! 🎉`;
+        // ניהול שיחה עם היסטוריה (הופך אותה לאדפטיבית)
+        const chat = model.startChat({
+            history: history || [], // המערכת שולחת את היסטוריית ההודעות הקודמות
+            generationConfig: {
+                maxOutputTokens: 1000,
+            },
+        });
+
+        const result = await chat.sendMessage(message);
+        const response = await result.response;
+        const replyText = response.text();
 
         res.json({
             success: true,
-            reply: reply,
+            reply: replyText,
             studentId: studentId,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        console.error('❌ Chat error:', error);
-        res.status(500).json({ error: 'Failed to process chat message' });
+        console.error('❌ Gemini Error:', error);
+        res.status(500).json({ error: 'מורנה נתקלה בבעיה בחיבור למוח הדיגיטלי שלה.' });
     }
 });
 
-// Assessment endpoint
+// Assessment endpoint (נשאר כפי שהיה)
 app.post('/api/assessment/submit', async (req, res) => {
     try {
         const { studentId, answers } = req.body;
-
-        const correctAnswers = {
-            q1: 'b',
-            q2: 'b',
-            q3: 'b',
-            q4: 'c'
-        };
-
+        const correctAnswers = { q1: 'b', q2: 'b', q3: 'b', q4: 'c' };
         let correctCount = 0;
         for (const [question, answer] of Object.entries(answers)) {
             if (answer === correctAnswers[question]) correctCount++;
         }
-
         const theoreticalScore = (correctCount / 4) * 100;
 
         res.json({
             success: true,
-            studentId: studentId,
             score: Math.round(theoreticalScore),
             correctCount: correctCount
         });
@@ -83,34 +103,11 @@ app.post('/api/assessment/submit', async (req, res) => {
     }
 });
 
-// 404 Handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'Route not found' });
+// Error handling & Start server...
+app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+
+app.listen(PORT, () => {
+    console.log(`🚀 Morna AI Backend running on port ${PORT}`);
 });
-
-// Error handler
-app.use((err, req, res, next) => {
-    console.error('❌ Error:', err.message);
-    res.status(err.status || 500).json({
-        error: err.message || 'Internal server error',
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Start server
-const startServer = async () => {
-    try {
-        app.listen(PORT, () => {
-            console.log(`🚀 Morna backend running on port ${PORT}`);
-            console.log(`📊 Environment: ${process.env.NODE_ENV}`);
-            console.log(`✅ Health: http://localhost:${PORT}/health`);
-        });
-    } catch (error) {
-        console.error('❌ Failed to start server:', error);
-        process.exit(1);
-    }
-};
-
-startServer();
 
 module.exports = app;
