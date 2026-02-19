@@ -3,45 +3,84 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 
-// Routes
-const chatRoutes = require('./routes/chatRoutes');
-const uploadRoutes = require('./routes/uploadRoutes');
-const assessmentRoutes = require('./routes/assessmentRoutes');
-const reportRoutes = require('./routes/reportRoutes');
-
-// Middleware
-const errorHandler = require('./middleware/errorHandler');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security & CORS
+// Middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: process.env.FRONTEND_URL || '*',
     credentials: true
 }));
 
-// Body Parser
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files
-app.use(express.static('../frontend/build'));
-
-// ===== Routes =====
-app.use('/api/chat', chatRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/assessment', assessmentRoutes);
-app.use('/api/report', reportRoutes);
+// ===== ROUTES =====
 
 // Health Check
 app.get('/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV 
+        environment: process.env.NODE_ENV,
+        message: '✅ Morna backend is running!'
     });
+});
+
+// Chat endpoint
+app.post('/api/chat', async (req, res) => {
+    try {
+        const { studentId, message } = req.body;
+
+        if (!message || !studentId) {
+            return res.status(400).json({ error: 'Missing fields' });
+        }
+
+        // Temporary response (without Gemini)
+        const reply = `שלום! אני מורנה. קיבלתי את הודעתך: "${message}". השרת עובד! 🎉`;
+
+        res.json({
+            success: true,
+            reply: reply,
+            studentId: studentId,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('❌ Chat error:', error);
+        res.status(500).json({ error: 'Failed to process chat message' });
+    }
+});
+
+// Assessment endpoint
+app.post('/api/assessment/submit', async (req, res) => {
+    try {
+        const { studentId, answers } = req.body;
+
+        const correctAnswers = {
+            q1: 'b',
+            q2: 'b',
+            q3: 'b',
+            q4: 'c'
+        };
+
+        let correctCount = 0;
+        for (const [question, answer] of Object.entries(answers)) {
+            if (answer === correctAnswers[question]) correctCount++;
+        }
+
+        const theoreticalScore = (correctCount / 4) * 100;
+
+        res.json({
+            success: true,
+            studentId: studentId,
+            score: Math.round(theoreticalScore),
+            correctCount: correctCount
+        });
+    } catch (error) {
+        console.error('❌ Assessment error:', error);
+        res.status(500).json({ error: 'Failed to submit assessment' });
+    }
 });
 
 // 404 Handler
@@ -49,15 +88,22 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
-// Error Handler (Must be last)
-app.use(errorHandler);
+// Error handler
+app.use((err, req, res, next) => {
+    console.error('❌ Error:', err.message);
+    res.status(err.status || 500).json({
+        error: err.message || 'Internal server error',
+        timestamp: new Date().toISOString()
+    });
+});
 
-// ===== Server Start =====
+// Start server
 const startServer = async () => {
     try {
         app.listen(PORT, () => {
-            console.log(`🚀 Morna server running on http://localhost:${PORT}`);
+            console.log(`🚀 Morna backend running on port ${PORT}`);
             console.log(`📊 Environment: ${process.env.NODE_ENV}`);
+            console.log(`✅ Health: http://localhost:${PORT}/health`);
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error);
